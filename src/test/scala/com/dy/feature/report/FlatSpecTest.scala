@@ -12,4 +12,14 @@ class FlatSpecTest extends FlatSpec {
   it should "fail" in {
     throw new Exception("flat spec test failed :(")
   }
+
+  behavior of "Another Flat Test Spec"
+
+  it should "be successful" in {
+    //nothing
+  }
+
+  it should "fail" in {
+    throw new Exception("flat spec test failed :(")
+  }
 }
