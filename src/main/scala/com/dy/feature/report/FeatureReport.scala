@@ -87,7 +87,7 @@ class FeatureReport extends ResourcefulReporter {
   override def dispose(): Unit = {
     val report = events.result()
       .sorted
-      .foldLeft((Report(), Stack[Scope]())) { case ((r, scopeStack), ev) =>
+      .foldLeft((Report(), Map[String, Stack[Scope]]())) { case ((r, scopeStack), ev) =>
         ev match {
           case v: RunStarting => (r.copy(startTime = v.timeStamp), scopeStack)
           case v: RunCompleted => (r.copy(stopTime = v.timeStamp, summary = v.summary, duration = v.duration), scopeStack)
@@ -102,35 +102,42 @@ class FeatureReport extends ResourcefulReporter {
 
           case v: ScopeOpened =>
             val currSuite = r.suites(v.nameInfo.suiteId)
-            val currScope = if (scopeStack.isEmpty) None else Some(scopeStack.top)
+            val currScope = scopeStack.get(currSuite.id).flatMap{ s => if (s.isEmpty) None  else Some(s.top) }
             val newScope = Scope(name = v.message, startTime = v.timeStamp, parent = currScope)
             val newScopes = currSuite.scopes + (v.message -> newScope)
 
-            (r + currSuite.copy(scopes = newScopes), scopeStack.push(newScope))
+            (r + currSuite.copy(scopes = newScopes),
+              scopeStack + (currSuite.id -> scopeStack.get(currSuite.id).map(_ push newScope).getOrElse(Stack(newScope))))
 
           case v: ScopeClosed =>
             val suite = r.suites(v.nameInfo.suiteId)
             val newScope = v.message -> suite.scopes(v.message).copy(stopTime = v.timeStamp)
 
-            (r + suite.copy(scopes = suite.scopes + newScope), scopeStack.pop)
+            val newScopeStack = scopeStack.get(suite.id)
+              .map(stack => scopeStack + (suite.id -> stack.pop))
+              .getOrElse(scopeStack)
+            (r + suite.copy(scopes = suite.scopes + newScope), newScopeStack)
 
           case v: ScopePending =>
             val suite = r.suites(v.nameInfo.suiteId)
             val newScope = v.message -> suite.scopes(v.message).copy(stopTime = v.timeStamp)
 
-            (r + suite.copy(scopes = suite.scopes + newScope), scopeStack.pop)
+            val newScopeStack = scopeStack.get(suite.id)
+              .map(stack => scopeStack + (suite.id -> stack.pop))
+              .getOrElse(scopeStack)
+            (r + suite.copy(scopes = suite.scopes + newScope), newScopeStack)
 
           case v: TestStarting =>
             val test = v.testName -> Test(v.testName, v.testText, v.timeStamp)
             val suite = r.suites(v.suiteId)
-            val scope = suite.scopes(scopeStack.top.name)
+            val scope = suite.scopes(scopeStack(suite.id).top.name)
             val newScope = scope.name -> scope.copy(tests = scope.tests + test)
 
             (r + suite.copy(scopes = suite.scopes + newScope), scopeStack)
 
           case v: TestSucceeded =>
             val suite = r.suites(v.suiteId)
-            val scope = suite.scopes(scopeStack.top.name)
+            val scope = suite.scopes(scopeStack(suite.id).top.name)
             val test = v.testName -> scope.tests(v.testName).copy(stopTime = v.timeStamp)
             val newScope = scope.name -> scope.copy(tests = scope.tests + test)
 
@@ -138,7 +145,7 @@ class FeatureReport extends ResourcefulReporter {
 
           case v: TestFailed =>
             val suite = r.suites(v.suiteId)
-            val scope = suite.scopes(scopeStack.top.name)
+            val scope = suite.scopes(scopeStack(suite.id).top.name)
             val test = v.testName -> scope.tests(v.testName).copy(stopTime = v.timeStamp, exception = v.throwable)
             val newScope = scope.name -> scope.copy(tests = scope.tests + test)
 
